@@ -191,7 +191,7 @@
   Core Register contain:
   - Core Register
   - Core NVIC Register
-  - Core SCB Register
+  - Core  Register
   - Core SysTick Register
   - Core Debug Register
   - Core MPU Register

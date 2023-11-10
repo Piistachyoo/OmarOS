@@ -12,6 +12,7 @@
 
 static struct{
 	Task_ref *OS_Tasks[MAX_NO_TASKS]; /* Scheduling Table */
+	uint8  NoOfActiveTasks;
 	uint32 _S_MSP_OS;
 	uint32 _E_MSP_OS;
 	uint32 PSP_Task_Locator;
@@ -24,46 +25,180 @@ static struct{
 	}OS_ModeID;
 }OS_Control;
 
+typedef enum{
+	SVC_ActivateTask,
+	SVC_TerminateTask,
+	SVC_TaskWaitingTime
+}SVC_ID;
+
 static FIFO_Buf_t Ready_QUEUE;
 static Task_ref *Ready_QUEUE_FIFO[MAX_NO_TASKS];
 static Task_ref IDLE_TASK;
 
-static void OmarOS_IdleTask();
+static void OmarOS_IdleTask(void);
 static void OmarOS_Create_TaskStack(Task_ref* newTask);
+static void OmarOS_UpdateSchedulerTable(void);
+static void OmarOS_BubbleSort(void);
+static void OmarOS_DecideNextTask(void);
 
-int OS_SVC_Set (int SVC_ID){
-	int result;
-	switch(SVC_ID){
-	case 1: // ADD
-		__asm ("svc #0x1");
+void OmarOS_Set_SVC (SVC_ID ID){
+	switch(ID){
+	case SVC_ActivateTask:
+		__asm ("svc #0x00");
 		break;
-	case 2: // SUB
-		__asm ("svc #0x2");
+	case SVC_TerminateTask:
+		__asm ("svc #0x01");
 		break;
-	case 3: // MUL
-		__asm ("svc #0x3");
-		break;
-	case 4: // PendSV
-		__asm ("svc #0x4");
+	case SVC_TaskWaitingTime:
+		__asm ("svc #0x02");
 		break;
 	}
-	__asm ("mov %[result], r0": [result]"=r"(result));
-	return result;
+}
+
+static void OmarOS_DecideNextTask(void){
+	/* If Ready Queue is empty && OS_Control->CurrentTask != Suspended */
+	if(Ready_QUEUE.counter == 0 && OS_Control.CurrentTask->TaskState != Suspended){
+	OS_Control.CurrentTask->TaskState = Running;
+
+	/* Add the current task again (Round Robin) */
+	FIFO_enqueue(&Ready_QUEUE, OS_Control.CurrentTask);
+	OS_Control.NextTask = OS_Control.CurrentTask;
+	}
+	else{
+		FIFO_dequeue(&Ready_QUEUE, &OS_Control.NextTask);
+		OS_Control.NextTask->TaskState = Running;
+
+		/* Update Ready Queue (To keep round robin algorithm) */
+		if((OS_Control.CurrentTask->Priority == OS_Control.NextTask->Priority) && (OS_Control.CurrentTask->TaskState != Suspended)){
+			FIFO_enqueue(&Ready_QUEUE, OS_Control.CurrentTask);
+			OS_Control.CurrentTask->TaskState = Ready;
+		}
+	}
 }
 
 /* Used to execute specific OS Services */
-void OS_SVC_services (uint32 *StackFramePointer){
+void OmarOS_SVC_services (uint32 *StackFramePointer){
 	/* OS_SVC_Set Stack -> r0 -> argument0 = StackFramePointer
 	   OS_SVC_Set : r0,r1,r2,r3,r12,LR,PC,xPSR */
 	uint8 SVC_number;
 	SVC_number = *((uint8*)((uint8*)(StackFramePointer[6])) - 2);
 	switch(SVC_number){
-	default: break;
+	case SVC_ActivateTask:
+		/* Update Scheduler Table and Ready Queue */
+		OmarOS_UpdateSchedulerTable();
+
+		/* If OS is in running state -> Decide what next task */
+		if(OS_Control.OS_ModeID == OS_Running){
+			if(STRING_compare_caseSensitive((uint8*)OS_Control.CurrentTask->TaskName, (uint8*)"idletask") != 0){
+				OmarOS_DecideNextTask();
+
+				/* Switch/Restore Context */
+				Trigger_OS_PendSV();
+			}
+		}
+
+		/*Trigger OS PendSV (Switch context/restore) */
+
+		break;
+	case SVC_TerminateTask:
+		__asm ("svc #0x01");
+		break;
+	case SVC_TaskWaitingTime:
+		__asm ("svc #0x02");
+		break;
 	}
 }
 
 void PendSV_Handler(void){
+	/* Save context of current task */
+	/* 1- Get the current task PSP */
+	OS_GET_PSP(OS_Control.CurrentTask->Current_PSP);
+
+	/* 2- Use the PSP to store R4 to R11 */
+	OS_Control.CurrentTask->Current_PSP--;
+	__asm volatile ("mov %0, r4" : "=r" (*(OS_Control.CurrentTask->Current_PSP)));
+	OS_Control.CurrentTask->Current_PSP--;
+	__asm volatile ("mov %0, r5" : "=r" (*(OS_Control.CurrentTask->Current_PSP)));
+	OS_Control.CurrentTask->Current_PSP--;
+	__asm volatile ("mov %0, r6" : "=r" (*(OS_Control.CurrentTask->Current_PSP)));
+	OS_Control.CurrentTask->Current_PSP--;
+	__asm volatile ("mov %0, r7" : "=r" (*(OS_Control.CurrentTask->Current_PSP)));
+	OS_Control.CurrentTask->Current_PSP--;
+	__asm volatile ("mov %0, r8" : "=r" (*(OS_Control.CurrentTask->Current_PSP)));
+	OS_Control.CurrentTask->Current_PSP--;
+	__asm volatile ("mov %0, r9" : "=r" (*(OS_Control.CurrentTask->Current_PSP)));
+	OS_Control.CurrentTask->Current_PSP--;
+	__asm volatile ("mov %0, r10" : "=r" (*(OS_Control.CurrentTask->Current_PSP)));
+	OS_Control.CurrentTask->Current_PSP--;
+	__asm volatile ("mov %0, r11" : "=r" (*(OS_Control.CurrentTask->Current_PSP)));
+
+	/* Restore context of next task */
+	OS_Control.CurrentTask = OS_Control.NextTask;
+	OS_Control.NextTask = NULL;
+
 	SCB->ICSR |= SCB_ICSR_PENDSVCLR_Msk;
+}
+
+static void OmarOS_UpdateSchedulerTable(void){
+	Task_ref *temp = NULL;
+	Task_ref *pTask, *pNextTask;
+	uint8 i = 0;
+
+	/* Bubble sort Scheduler Table */
+	OmarOS_BubbleSort();
+
+	/* Free Ready Queue */
+	while(FIFO_dequeue(&Ready_QUEUE, &temp) != FIFO_EMPTY);
+
+	/* Update Ready Queue */
+	while(i < OS_Control.NoOfActiveTasks){
+		pTask = OS_Control.OS_Tasks[i];
+		pNextTask = OS_Control.OS_Tasks[i + 1];
+
+		if(pTask->TaskState != Suspended){
+			/* In case we reached to the end of available OSTasks */
+			if(pNextTask->TaskState == Suspended){
+				FIFO_enqueue(&Ready_QUEUE, pTask);
+				pTask->TaskState = Ready;
+				break;
+			}
+			/* Check for priority */
+			if(pTask->Priority < pNextTask->Priority){
+				/* Current task have higher priority */
+				FIFO_enqueue(&Ready_QUEUE, pTask);
+				pTask->TaskState = Ready;
+				break;
+			}
+			else if(pTask->Priority == pNextTask->Priority){
+				/* If both tasks have the same priority
+				 * Push pTask to ready state
+				 * Make the pTask = pNextTask and pNextTask++
+				 */
+				FIFO_enqueue(&Ready_QUEUE, pTask);
+				pTask->TaskState = Ready;
+			}
+			else if(pTask->Priority > pNextTask->Priority){
+				/* Not allowed to happen because we already did bubble sort */
+				break;
+			}
+		}
+		i++;
+	}
+}
+
+static void OmarOS_BubbleSort(void){
+	uint8 i, j, n;
+	Task_ref *temp;
+	n = OS_Control.NoOfActiveTasks;
+	for(i = 0; i < (n - 1); i++){
+		for(j = 0; j < (n - i - 1); j++){
+			if(OS_Control.OS_Tasks[j]->Priority > OS_Control.OS_Tasks[j+1]->Priority){
+				temp = OS_Control.OS_Tasks[j];
+				OS_Control.OS_Tasks[j] = OS_Control.OS_Tasks[j+1];
+				OS_Control.OS_Tasks[j+1] = temp;
+			}
+		}
+	}
 }
 
 void OmarOS_Create_MainStack(void){
@@ -180,4 +315,26 @@ static void OmarOS_Create_TaskStack(Task_ref* newTask){
 		newTask->Current_PSP--;
 		*(newTask->Current_PSP) = 0;
 	}
+}
+
+OmarOS_errorTypes OmarOS_ActivateTask(Task_ref* pTask){
+	OmarOS_errorTypes retval = noError;
+
+	/* Change Task State */
+	pTask->TaskState = Waiting;
+
+	OmarOS_Set_SVC(SVC_ActivateTask);
+
+	return retval;
+}
+
+OmarOS_errorTypes OmarOS_TerminateTask(Task_ref* pTask){
+	OmarOS_errorTypes retval = noError;
+
+	/* Change Task State */
+	pTask->TaskState = Suspended;
+
+	OmarOS_Set_SVC(SVC_TerminateTask);
+
+	return retval;
 }

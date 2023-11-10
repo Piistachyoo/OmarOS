@@ -34,7 +34,7 @@ __attribute ((naked)) void SVC_Handler(void){
 		   "ITE EQ \n"
 		   "mrseq r0, msp \n"
 		   "mrsne r0, psp \n"
-		   "B OS_SVC_services");
+		   "B OmarOS_SVC_services");
 }
 
 void HW_Init(void){
@@ -44,4 +44,7 @@ void HW_Init(void){
 	 * X count -> 1ms
 	 * X = 8000 count
 	 */
+
+	/* Decrease PendSV interrupt priority to be smaller or equal to systick timer */
+	__NVIC_SetPriority(PendSV_IRQn, 15);
 }

@@ -72,5 +72,7 @@ typedef struct{
  */
 OmarOS_errorTypes OmarOS_Init(void);
 OmarOS_errorTypes OmarOS_CreateTask(Task_ref* newTask);
+OmarOS_errorTypes OmarOS_ActivateTask(Task_ref* pTask);
+OmarOS_errorTypes OmarOS_TerminateTask(Task_ref* pTask);
 
 #endif /* INC_SCHEDULER_H_ */

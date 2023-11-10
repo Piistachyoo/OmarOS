@@ -48,3 +48,7 @@ void HW_Init(void){
 	/* Decrease PendSV interrupt priority to be smaller or equal to systick timer */
 	__NVIC_SetPriority(PendSV_IRQn, 15);
 }
+
+void Start_Ticker(void){
+	SysTick_Config(8000);
+}

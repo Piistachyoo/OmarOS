@@ -10,9 +10,12 @@
 #include "scheduler.h"
 
 Task_ref Task1, Task2, Task3;
+uint8	 Task1LED, Task2LED, Task3LED, Task4LED;
 
 void Task_1(void);
+
 void Task_2(void);
+
 void Task_3(void);
 
 int main(void)
@@ -44,6 +47,12 @@ int main(void)
 	retval |= OmarOS_CreateTask(&Task2);
 	retval |= OmarOS_CreateTask(&Task3);
 
+	OmarOS_ActivateTask(&Task1);
+	OmarOS_ActivateTask(&Task2);
+	OmarOS_ActivateTask(&Task3);
+
+	OmarOS_StartOS();
+
     while(1){
 
     }
@@ -52,20 +61,20 @@ int main(void)
 void Task_1(void){
 	while(1){
 		/* Taskl Code */
-
+		Task1LED ^= 1;
 	}
 }
 
 void Task_2(void){
 	while(1){
 		/* Task2 Code */
-
+		Task2LED ^= 1;
 	}
 }
 
 void Task_3(void){
 	while(1){
 		/* Task3 Code */
-
+		Task3LED ^= 1;
 	}
 }

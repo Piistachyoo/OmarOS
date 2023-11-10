@@ -10,7 +10,9 @@
 #include "scheduler.h"
 #include "OmarOS_FIFO.h"
 
-static struct{
+uint8 IdleTaskLED, SysTickLED;
+
+struct{
 	Task_ref *OS_Tasks[MAX_NO_TASKS]; /* Scheduling Table */
 	uint8  NoOfActiveTasks;
 	uint32 _S_MSP_OS;
@@ -31,8 +33,8 @@ typedef enum{
 	SVC_TaskWaitingTime
 }SVC_ID;
 
-static FIFO_Buf_t Ready_QUEUE;
-static Task_ref *Ready_QUEUE_FIFO[MAX_NO_TASKS];
+FIFO_Buf_t Ready_QUEUE;
+Task_ref *Ready_QUEUE_FIFO[MAX_NO_TASKS];
 static Task_ref IDLE_TASK;
 
 static void OmarOS_IdleTask(void);
@@ -109,7 +111,7 @@ void OmarOS_SVC_services (uint32 *StackFramePointer){
 	}
 }
 
-void PendSV_Handler(void){
+__attribute ((naked)) void PendSV_Handler(void){
 	/* Save context of current task */
 	/* 1- Get the current task PSP */
 	OS_GET_PSP(OS_Control.CurrentTask->Current_PSP);
@@ -136,7 +138,37 @@ void PendSV_Handler(void){
 	OS_Control.CurrentTask = OS_Control.NextTask;
 	OS_Control.NextTask = NULL;
 
-	SCB->ICSR |= SCB_ICSR_PENDSVCLR_Msk;
+	__asm volatile ("mov r11, %0" : : "r" (*(OS_Control.CurrentTask->Current_PSP)));
+	OS_Control.CurrentTask->Current_PSP++;
+	__asm volatile ("mov r10, %0" : : "r" (*(OS_Control.CurrentTask->Current_PSP)));
+	OS_Control.CurrentTask->Current_PSP++;
+	__asm volatile ("mov r9, %0" : : "r" (*(OS_Control.CurrentTask->Current_PSP)));
+	OS_Control.CurrentTask->Current_PSP++;
+	__asm volatile ("mov r8, %0" : : "r" (*(OS_Control.CurrentTask->Current_PSP)));
+	OS_Control.CurrentTask->Current_PSP++;
+	__asm volatile ("mov r7, %0" : : "r" (*(OS_Control.CurrentTask->Current_PSP)));
+	OS_Control.CurrentTask->Current_PSP++;
+	__asm volatile ("mov r6, %0" : : "r" (*(OS_Control.CurrentTask->Current_PSP)));
+	OS_Control.CurrentTask->Current_PSP++;
+	__asm volatile ("mov r5, %0" : : "r" (*(OS_Control.CurrentTask->Current_PSP)));
+	OS_Control.CurrentTask->Current_PSP++;
+	__asm volatile ("mov r4, %0" : : "r" (*(OS_Control.CurrentTask->Current_PSP)));
+	OS_Control.CurrentTask->Current_PSP++;
+
+	/* Update PSP and exit */
+	OS_SET_PSP(OS_Control.CurrentTask->Current_PSP);
+	__asm volatile ("BX LR");
+
+}
+
+void SysTick_Handler(void){
+	SysTickLED ^= 1;
+
+	/* Determine Current and Next tasks */
+	OmarOS_DecideNextTask();
+
+	/* Switch context and restore */
+	Trigger_OS_PendSV();
 }
 
 static void OmarOS_UpdateSchedulerTable(void){
@@ -236,6 +268,7 @@ OmarOS_errorTypes OmarOS_Init(void){
 static void OmarOS_IdleTask(){
 	while(1){
 		__asm ("NOP");
+		IdleTaskLED ^= 1;
 	}
 }
 
@@ -256,6 +289,9 @@ OmarOS_errorTypes OmarOS_CreateTask(Task_ref* newTask){
 	if(!retval){ /* No error */
 		OS_Control.PSP_Task_Locator = newTask->_E_PSP_Task - 8;
 	}
+
+	OS_Control.OS_Tasks[OS_Control.NoOfActiveTasks] = newTask;
+	OS_Control.NoOfActiveTasks++;
 
 	/* Task State Update */
 	if(newTask->AutoStart == enabled){
@@ -317,24 +353,35 @@ static void OmarOS_Create_TaskStack(Task_ref* newTask){
 	}
 }
 
-OmarOS_errorTypes OmarOS_ActivateTask(Task_ref* pTask){
-	OmarOS_errorTypes retval = noError;
-
+void OmarOS_ActivateTask(Task_ref* pTask){
 	/* Change Task State */
 	pTask->TaskState = Waiting;
 
 	OmarOS_Set_SVC(SVC_ActivateTask);
-
-	return retval;
 }
 
-OmarOS_errorTypes OmarOS_TerminateTask(Task_ref* pTask){
-	OmarOS_errorTypes retval = noError;
-
+void OmarOS_TerminateTask(Task_ref* pTask){
 	/* Change Task State */
 	pTask->TaskState = Suspended;
 
 	OmarOS_Set_SVC(SVC_TerminateTask);
+}
 
-	return retval;
+void OmarOS_StartOS(void){
+	OS_Control.OS_ModeID = OS_Running;
+	/* Set default "Current Task" */
+	OS_Control.CurrentTask = &IDLE_TASK;
+
+	OmarOS_ActivateTask(&IDLE_TASK);
+
+	/* Start Ticker */
+	Start_Ticker();
+
+	/* Set PSP */
+	OS_SET_PSP(OS_Control.CurrentTask->Current_PSP);
+	OS_SWITCH_SP_to_PSP();
+
+	/* Switch to thread mode and unprivileged */
+	OS_SET_CPU_UNPRIVILIGED();
+	OS_Control.CurrentTask->pf_TaskEntry();
 }

@@ -219,7 +219,10 @@ signed char STRING_compare_caseSensitive(const unsigned char* str1, const unsign
 				}
 				break;
 			}
-			else{ /* Do Nothing */ }
+			else{
+				str1++;
+				str2++;
+			}
 		}
 	}
 	else{ /* Do Nothing */ }
@@ -292,7 +295,10 @@ signed char STRING_compare_caseInsensitive(const unsigned char* str1, const unsi
 					break;
 				}
 			}
-			else{ /* Do Nothing */ }
+			else{
+				str1++;
+				str2++;
+			}
 		}
 	}
 	else{ /* Do Nothing */ }

@@ -35,5 +35,6 @@ extern uint32 _estack, _eheap;
 #define OS_SET_CPU_UNPRIVILIGED() __asm volatile("mrs r0, CONTROL \n\t orr r0, r0, #0x1 \n\t msr CONTROL, r0")
 
 void HW_Init(void);
+void Start_Ticker(void);
 
 #endif /* INC_CORTEXMX_OS_PORTING_H_ */

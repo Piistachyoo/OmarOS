@@ -42,6 +42,7 @@ static void OmarOS_Create_TaskStack(Task_ref* newTask);
 static void OmarOS_UpdateSchedulerTable(void);
 static void OmarOS_BubbleSort(void);
 static void OmarOS_DecideNextTask(void);
+static void OmarOS_Update_TasksWaitingTime(void);
 
 void OmarOS_Set_SVC (SVC_ID ID){
 	switch(ID){
@@ -86,6 +87,8 @@ void OmarOS_SVC_services (uint32 *StackFramePointer){
 	SVC_number = *((uint8*)((uint8*)(StackFramePointer[6])) - 2);
 	switch(SVC_number){
 	case SVC_ActivateTask:
+	case SVC_TerminateTask:
+	case SVC_TaskWaitingTime:
 		/* Update Scheduler Table and Ready Queue */
 		OmarOS_UpdateSchedulerTable();
 
@@ -98,15 +101,6 @@ void OmarOS_SVC_services (uint32 *StackFramePointer){
 				Trigger_OS_PendSV();
 			}
 		}
-
-		/*Trigger OS PendSV (Switch context/restore) */
-
-		break;
-	case SVC_TerminateTask:
-		__asm ("svc #0x01");
-		break;
-	case SVC_TaskWaitingTime:
-		__asm ("svc #0x02");
 		break;
 	}
 }
@@ -163,6 +157,8 @@ __attribute ((naked)) void PendSV_Handler(void){
 
 void SysTick_Handler(void){
 	SysTickLED ^= 1;
+
+	OmarOS_Update_TasksWaitingTime();
 
 	/* Determine Current and Next tasks */
 	OmarOS_DecideNextTask();
@@ -267,8 +263,8 @@ OmarOS_errorTypes OmarOS_Init(void){
 
 static void OmarOS_IdleTask(){
 	while(1){
-		__asm ("NOP");
 		IdleTaskLED ^= 1;
+		__asm ("wfe");
 	}
 }
 
@@ -294,7 +290,7 @@ OmarOS_errorTypes OmarOS_CreateTask(Task_ref* newTask){
 	OS_Control.NoOfActiveTasks++;
 
 	/* Task State Update */
-	if(newTask->AutoStart == enabled){
+	if(newTask->AutoStart == Autostart_Enabled){
 		newTask->TaskState = Ready;
 	}
 	else{
@@ -367,6 +363,15 @@ void OmarOS_TerminateTask(Task_ref* pTask){
 	OmarOS_Set_SVC(SVC_TerminateTask);
 }
 
+void OmarOS_TaskWait(uint32 Ticks, Task_ref* pTask){
+	pTask->TimeWaiting.Task_Block_State = enabled;
+	pTask->TimeWaiting.Ticks_Count = Ticks;
+
+	/* Task should be blocked */
+	pTask->TaskState = Suspended;
+	OmarOS_Set_SVC(SVC_TerminateTask);
+}
+
 void OmarOS_StartOS(void){
 	OS_Control.OS_ModeID = OS_Running;
 	/* Set default "Current Task" */
@@ -384,4 +389,20 @@ void OmarOS_StartOS(void){
 	/* Switch to thread mode and unprivileged */
 	OS_SET_CPU_UNPRIVILIGED();
 	OS_Control.CurrentTask->pf_TaskEntry();
+}
+
+void OmarOS_Update_TasksWaitingTime(void){
+	uint8 index;
+	for(index = 0; index < OS_Control.NoOfActiveTasks; index++){
+		if(OS_Control.OS_Tasks[index]->TaskState == Suspended){
+			if(OS_Control.OS_Tasks[index]->TimeWaiting.Task_Block_State == enabled){
+				OS_Control.OS_Tasks[index]->TimeWaiting.Ticks_Count--;
+				if(OS_Control.OS_Tasks[index]->TimeWaiting.Ticks_Count == 0){
+					OS_Control.OS_Tasks[index]->TimeWaiting.Task_Block_State = disabled;
+					OS_Control.OS_Tasks[index]->TaskState = Waiting;
+					OmarOS_Set_SVC(SVC_TaskWaitingTime);
+				}
+			}
+		}
+	}
 }

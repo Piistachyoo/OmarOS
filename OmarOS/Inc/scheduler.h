@@ -26,7 +26,10 @@ typedef enum{
 
 typedef struct{
 	const char TaskName[30];
-	boolean AutoStart;
+	enum{
+		Autostart_Disabled,
+		Autostart_Enabled
+	}AutoStart;
 	uint8 Priority;
 	void (*pf_TaskEntry)(void); /* Pointer to Task C Function*/
 
@@ -59,21 +62,15 @@ typedef struct{
 
 /*
  * =============================================
- * APIs Supported by "Scheduler"
+ * APIs Supported by "OmarOS"
  * =============================================
  */
 
-/**=============================================
- * @Fn			- 
- * @brief 		- 
- * @param [in] 	- 
- * @retval 		- 
- * Note			- 
- */
 OmarOS_errorTypes OmarOS_Init(void);
 OmarOS_errorTypes OmarOS_CreateTask(Task_ref* newTask);
 void OmarOS_ActivateTask(Task_ref* pTask);
 void OmarOS_TerminateTask(Task_ref* pTask);
 void OmarOS_StartOS(void);
+void OmarOS_TaskWait(uint32 Ticks, Task_ref* pTask);
 
 #endif /* INC_SCHEDULER_H_ */

@@ -11,12 +11,22 @@ Omar OS is a Real-Time Operating System written from scratch, targeting embedded
   
 3- Event and Time triggered scheduler: OmarOS allows the user to choose between letting the tasks activate/terminate either by themselves or by an event, or by using delays to run the tasks periodically! 
   
-4- Easy task synchronization: OmarOS supports queued Mutexs, which allows one task to wait for an acquired mutex and to be activated once the mutex is released!  
+4- Easy task synchronization: OmarOS supports Mutexs, which allows one task to wait for an acquired mutex and to be activated once the mutex is released!  
   
 5- No mutex releases by mistake: OmarOS respects the Mutex ownership concept and allows only the task that is holding the mutex to release it.   
   
 6- Priority Inversion is no more: OmarOS features the priority ceiling technique which helps in avoiding the priority inversion problem!  
-  
+
+### Supported APIs:  
+
+- **OmarOS_Init:** Initializes the OS control and buffers
+- **OmarOS_CreateTask:** Creates the task object in the OS and initializes the task's stack area
+- **OmarOS_ActivateTask:** Sends a task to the ready queue to be scheduled
+- **OmarOS_TerminateTask:** Sends a task to the suspended state
+- **OmarOS_StartOS:** Starts the OS scheduler to begin running tasks
+- **OmarOS_TaskWait:** Sends a task to the waiting state for a specific amount of Ticks
+- **OmarOS_AcquireMutex:** Tries to acquire a mutex if available
+- **OmarOS_ReleaseMutex:** Releases a mutex and starts the next task that is in the queue (if found)
 
 ### Examples:  
 In this example there are 3 tasks with the same priority, running sequentially with the round-robin scheduling policy   
